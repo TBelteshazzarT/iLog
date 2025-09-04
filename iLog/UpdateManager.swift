@@ -156,56 +156,43 @@ class UpdateManager: ObservableObject {
     
     private func installUpdate(from downloadedURL: URL, completion: @escaping (Bool, Error?) -> Void) {
         print("=== Starting Update Installation ===")
+        print("Downloaded file path: \(downloadedURL.path)")
+        print("File exists: \(FileManager.default.fileExists(atPath: downloadedURL.path))")
         
         let currentAppURL = Bundle.main.bundleURL
         let appName = currentAppURL.lastPathComponent
         let applicationsDir = FileManager.default.urls(for: .applicationDirectory, in: .localDomainMask).first!
         let targetURL = applicationsDir.appendingPathComponent(appName)
         
-        // Use the actual persistent path from the downloaded file
-        let persistentDownloadPath = downloadedURL.path
-        
         let scriptContent = """
         #!/bin/bash
         set -e
-
+        
         LOG_FILE="/private/tmp/iLog_update_detailed.log"
         exec > >(tee -a "$LOG_FILE") 2>&1
-
+        
         echo "=========================================="
         echo "iLog UPDATE SCRIPT STARTED: $(date)"
         echo "=========================================="
-
-        # macOS-compatible path resolution
-        resolve_path() {
-            local path="$1"
-            # Use Python to resolve symlinks (available on all macOS systems)
-            /usr/bin/python -c "import os; print(os.path.realpath('$path'))"
-        }
-
-        # Resolve the downloaded file path
-        ZIP_FILE="$(resolve_path "\(downloadedURL.path)")"
+        
+        # Use the direct path provided by the app
+        ZIP_FILE="\(downloadedURL.path)"
         TARGET_APP="/Applications/iLog.app"
         EXTRACT_DIR="/private/tmp/iLog_extract_$$"
-
-        echo "Resolved paths:"
-        echo "ZIP file: $ZIP_FILE"
-        echo "Target: $TARGET_APP"
+        
+        echo "ZIP file path: $ZIP_FILE"
+        echo "Target app: $TARGET_APP"
         echo "Extract dir: $EXTRACT_DIR"
-
-        # Verify the resolved path exists
+        
+        # Verify the ZIP file exists
         if [ ! -f "$ZIP_FILE" ]; then
-            echo "❌ ZIP file does not exist at resolved path: $ZIP_FILE"
-            echo "Original path: \(downloadedURL.path)"
-            echo "Trying alternative path discovery..."
+            echo "❌ ZIP file does not exist at: $ZIP_FILE"
+            echo "Trying alternative locations..."
             
-            # Try the original path directly
-            if [ -f "\(downloadedURL.path)" ]; then
-                ZIP_FILE="\(downloadedURL.path)"
-                echo "✓ Found at original path: $ZIP_FILE"
-            # Try with /private/ prefix
-            elif [ -f "/private\(downloadedURL.path)" ]; then
-                ZIP_FILE="/private\(downloadedURL.path)"
+            # Check if file exists with /private prefix
+            PRIVATE_PATH="/private\(downloadedURL.path)"
+            if [ -f "$PRIVATE_PATH" ]; then
+                ZIP_FILE="$PRIVATE_PATH"
                 echo "✓ Found at private path: $ZIP_FILE"
             else
                 echo "❌ File not found anywhere"
@@ -216,47 +203,54 @@ class UpdateManager: ObservableObject {
                 exit 1
             fi
         fi
-
+        
         echo "✓ ZIP file verified: $ZIP_FILE"
         echo "File size: $(wc -c < "$ZIP_FILE") bytes"
-
+        echo "File type: $(file "$ZIP_FILE")"
+        
         # Create extract directory
         echo "Creating extract directory: $EXTRACT_DIR"
         mkdir -p "$EXTRACT_DIR" || {
             echo "❌ Failed to create extract directory"
             exit 1
         }
-
-        # Extract using ditto (more reliable on macOS than unzip)
-        echo "Extracting ZIP file with ditto..."
-        ditto -x -k "$ZIP_FILE" "$EXTRACT_DIR" 2>&1 | tee -a "$LOG_FILE"
-
+        
+        # First try using ditto (most reliable on macOS)
+        echo "Extracting with ditto..."
+        ditto -x -k "$ZIP_FILE" "$EXTRACT_DIR" 2>&1
+        
         if [ $? -ne 0 ]; then
-            echo "❌ ditto extraction failed!"
-            echo "Trying unzip as fallback..."
-            unzip -o "$ZIP_FILE" -d "$EXTRACT_DIR" 2>&1 | tee -a "$LOG_FILE"
+            echo "❌ ditto extraction failed, trying unzip..."
+            unzip -o "$ZIP_FILE" -d "$EXTRACT_DIR" 2>&1
             
             if [ $? -ne 0 ]; then
                 echo "❌ Both ditto and unzip failed!"
-                exit 1
+                echo "Trying with absolute path..."
+                /usr/bin/unzip -o "$ZIP_FILE" -d "$EXTRACT_DIR" 2>&1
+                
+                if [ $? -ne 0 ]; then
+                    echo "❌ All extraction methods failed!"
+                    exit 1
+                fi
             fi
         fi
-
-        echo "Extraction completed. Contents:"
+        
+        echo "✓ Extraction successful"
+        echo "Extracted contents:"
         ls -la "$EXTRACT_DIR"
-
+        
         # Find the .app file
         APP_PATH=$(find "$EXTRACT_DIR" -name "*.app" -type d | head -n 1)
-
+        
         if [ -z "$APP_PATH" ]; then
             echo "❌ No .app file found in extracted contents!"
             echo "All extracted files:"
-            find "$EXTRACT_DIR" -type f
+            find "$EXTRACT_DIR" -type f -o -type d
             exit 1
         fi
-
+        
         echo "✓ Found app: $APP_PATH"
-
+        
         # Verify app structure
         if [ ! -d "$APP_PATH/Contents/MacOS" ]; then
             echo "❌ App missing Contents/MacOS directory!"
@@ -264,8 +258,12 @@ class UpdateManager: ObservableObject {
             ls -la "$APP_PATH"
             exit 1
         fi
-
-        # Remove old version
+        
+        # Remove old version (quit the app first if running)
+        echo "Quitting current iLog instance..."
+        pkill -x "iLog" || true
+        sleep 1
+        
         echo "Removing old version..."
         if [ -d "$TARGET_APP" ]; then
             rm -rf "$TARGET_APP" || {
@@ -273,30 +271,30 @@ class UpdateManager: ObservableObject {
                 exit 1
             }
         fi
-
+        
         # Copy new version
         echo "Copying new version..."
         cp -R "$APP_PATH" "$TARGET_APP" || {
             echo "❌ Copy failed!"
             exit 1
         }
-
+        
         # Fix permissions
         echo "Fixing permissions..."
         chmod -R 755 "$TARGET_APP" || {
             echo "⚠️  Failed to fix permissions, but continuing..."
         }
-
+        
         # Remove quarantine attribute
         echo "Removing quarantine attributes..."
         xattr -rc "$TARGET_APP" 2>/dev/null || true
-
-        # Code signing
+        
+        # Code signing (optional)
         echo "Code signing..."
         codesign --force --deep --sign - "$TARGET_APP" 2>/dev/null || {
             echo "⚠️  Code signing failed (may be normal without developer cert)"
         }
-
+        
         # Verify installation
         if [ -d "$TARGET_APP" ] && [ -d "$TARGET_APP/Contents/MacOS" ]; then
             echo "✓ Installation successful!"
@@ -304,26 +302,26 @@ class UpdateManager: ObservableObject {
             echo "❌ Installation verification failed!"
             exit 1
         fi
-
+        
         # Cleanup
         echo "Cleaning up..."
         rm -rf "$EXTRACT_DIR"
         rm -f "$ZIP_FILE"
-
+        
         # Launch new version
         echo "Launching new iLog..."
         sleep 2
-        open "$TARGET_APP" || {
+        open "$TARGET_APP" --args "--updated" || {
             echo "⚠️  Open command failed, but installation completed"
         }
-
+        
         echo "=========================================="
         echo "iLog UPDATE COMPLETED SUCCESSFULLY: $(date)"
         echo "=========================================="
-
+        
         # Self-cleanup
         rm -f "$0"
-
+        
         exit 0
         """
         
