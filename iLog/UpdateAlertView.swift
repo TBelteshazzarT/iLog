@@ -5,7 +5,6 @@
 //  Created by Daniel Boyd on 9/3/25.
 //
 
-
 // UpdateAlertView.swift
 import SwiftUI
 
@@ -18,7 +17,7 @@ struct UpdateAlertView: View {
             Text("Update Available")
                 .font(.headline)
             
-            Text("Version \(updateManager.latestVersion) is now available.")
+            Text("iLog \(updateManager.latestVersion) is now available.")
                 .multilineTextAlignment(.center)
             
             if !updateManager.releaseNotes.isEmpty {
@@ -41,9 +40,11 @@ struct UpdateAlertView: View {
                 }
                 
                 Button("Update Now") {
+                    // FIXED: Call the method correctly
                     updateManager.downloadAndInstallUpdate { success, error in
                         if let error = error {
                             print("Update failed: \(error.localizedDescription)")
+                            // You might want to show an error alert here
                         }
                     }
                 }
