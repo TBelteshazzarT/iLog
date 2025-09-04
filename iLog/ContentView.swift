@@ -2,58 +2,28 @@
 //  ContentView.swift
 //  iLog
 //
-//  Created by Daniel Boyd on 9/1/25.
+//  Created by Daniel Boyd on 8/31/25.
 //
-
 import SwiftUI
-import SwiftData
+import Charts
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
-
+    @State private var selectedTab = 0
+    
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
+        TabView(selection: $selectedTab) {
+            DataEntryView()
+                .tabItem {
+                    Label("Log", systemImage: "plus.circle")
                 }
-                .onDelete(perform: deleteItems)
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            .toolbar {
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
+                .tag(0)
+            
+            GraphView()
+                .tabItem {
+                    Label("Graphs", systemImage: "chart.xyaxis.line")
                 }
-            }
-        } detail: {
-            Text("Select an item")
+                .tag(1)
         }
+        .frame(minWidth: 700, minHeight: 500) // Increased minimum size
     }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
-            }
-        }
-    }
-}
-
-#Preview {
-    ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
 }

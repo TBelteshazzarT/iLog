@@ -2,31 +2,61 @@
 //  iLogApp.swift
 //  iLog
 //
-//  Created by Daniel Boyd on 9/1/25.
+//  Created by Daniel Boyd on 8/31/25.
 //
 
 import SwiftUI
-import SwiftData
 
 @main
 struct iLogApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
-
+    @StateObject private var dataStore = DataStore()
+    @StateObject private var updateManager = UpdateManager(repoOwner: "TBelteshazzarT", repoName: "iLog")
+    @State private var showUpdateAlert = false
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(dataStore)
+                .onAppear {
+                    // Check for updates 2 seconds after app launches
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        updateManager.checkForUpdates()
+                    }
+                }
+                .alert(isPresented: $updateManager.showUpdateAlert) {
+                    Alert(
+                        title: Text("Update Available"),
+                        message: Text("iLog \(updateManager.latestVersion) is now available. Would you like to update now?"),
+                        primaryButton: .default(Text("Update Now")) {
+                            updateManager.downloadAndInstallUpdate { success, error in
+                                if let error = error {
+                                    // You might want to show an error alert here
+                                    print("Update failed: \(error.localizedDescription)")
+                                }
+                            }
+                        },
+                        secondaryButton: .cancel(Text("Later"))
+                    )
+                }
         }
-        .modelContainer(sharedModelContainer)
+        .windowStyle(.titleBar)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates...") {
+                    updateManager.checkForUpdates()
+                }
+                
+                if updateManager.updateAvailable {
+                    Divider()
+                    Button("Install iLog \(updateManager.latestVersion)") {
+                        updateManager.downloadAndInstallUpdate { success, error in
+                            if let error = error {
+                                print("Update error: \(error.localizedDescription)")
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
