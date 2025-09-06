@@ -12,7 +12,9 @@ struct iLogApp: App {
     @StateObject private var dataStore = DataStore()
     @StateObject private var updateManager = UpdateManager(
         repoOwner: "TBelteshazzarT",
-        repoName: "iLog"
+        repoName: "iLog",
+        appName: "iLog",
+        githubToken: nil // Optional: add your GitHub token here if needed
     )
     
     var body: some Scene {
@@ -28,9 +30,8 @@ struct iLogApp: App {
                 .alert(isPresented: $updateManager.showUpdateAlert) {
                     Alert(
                         title: Text("Update Available"),
-                        message: Text("iLog \(updateManager.latestVersion) is now available. Would you like to update now?"),
+                        message: Text("\(updateManager.latestVersion) is now available. Would you like to update now?"),
                         primaryButton: .default(Text("Update Now")) {
-                            // FIXED: Call the method directly instead of using key path
                             updateManager.downloadAndInstallUpdate { success, error in
                                 if let error = error {
                                     print("Update failed: \(error.localizedDescription)")

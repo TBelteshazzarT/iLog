@@ -5,7 +5,6 @@
 //  Created by Daniel Boyd on 9/3/25.
 //
 
-
 // UpdateManager.swift
 import SwiftUI
 import Foundation
@@ -20,10 +19,22 @@ class UpdateManager: ObservableObject {
     private let currentVersion: String
     private let repoOwner: String
     private let repoName: String
+    private let appName: String
+    private let githubToken: String?
     
-    init(repoOwner: String, repoName: String, githubToken: String? = nil) {
+    init(repoOwner: String, repoName: String, appName: String? = nil, githubToken: String? = nil) {
         self.repoOwner = repoOwner
         self.repoName = repoName
+        self.githubToken = githubToken
+        
+        // Determine app name - use provided name or extract from bundle
+        if let appName = appName {
+            self.appName = appName
+        } else if let bundleName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String {
+            self.appName = bundleName
+        } else {
+            self.appName = "App"
+        }
         
         // Try to get the build version first, fall back to marketing version
         if let buildVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String {
@@ -34,7 +45,7 @@ class UpdateManager: ObservableObject {
             self.currentVersion = "1.0.0"
         }
         
-        print("Initialized UpdateManager with version: \(currentVersion)")
+        print("Initialized UpdateManager for \(self.appName) with version: \(currentVersion)")
     }
     
     func checkForUpdates() {
@@ -45,7 +56,12 @@ class UpdateManager: ObservableObject {
         
         print("API URL: \(apiURL.absoluteString)")
         
-        URLSession.shared.dataTask(with: apiURL) { data, response, error in
+        var request = URLRequest(url: apiURL)
+        if let token = githubToken {
+            request.setValue("token \(token)", forHTTPHeaderField: "Authorization")
+        }
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
             guard let data = data, error == nil else {
                 print("Error checking for updates: \(error?.localizedDescription ?? "Unknown error")")
                 return
@@ -104,13 +120,10 @@ class UpdateManager: ObservableObject {
         let currentComponents = cleanCurrent.split(separator: ".").map { String($0) }
         let latestComponents = cleanLatest.split(separator: ".").map { String($0) }
         
-        
         // Compare each version component
         for i in 0..<max(currentComponents.count, latestComponents.count) {
             let currentPart = i < currentComponents.count ? Int(currentComponents[i]) ?? 0 : 0
             let latestPart = i < latestComponents.count ? Int(latestComponents[i]) ?? 0 : 0
-            
-            // print("Part \(i): Current=\(currentPart), Latest=\(latestPart)")
             
             if latestPart > currentPart {
                 print("New version available! Latest is newer at part \(i)")
@@ -133,8 +146,7 @@ class UpdateManager: ObservableObject {
                 return
             }
             
-            // Use /private/tmp/ for consistency
-            let fileName = "iLog_update_\(Int(Date().timeIntervalSince1970)).zip"
+            let fileName = "\(self.appName)_update_\(Int(Date().timeIntervalSince1970)).zip"
             let persistentURL = URL(fileURLWithPath: "/private/tmp/\(fileName)")
             
             do {
@@ -160,25 +172,26 @@ class UpdateManager: ObservableObject {
         print("File exists: \(FileManager.default.fileExists(atPath: downloadedURL.path))")
         
         let currentAppURL = Bundle.main.bundleURL
-        let appName = currentAppURL.lastPathComponent
+        let appFileName = currentAppURL.lastPathComponent
         let applicationsDir = FileManager.default.urls(for: .applicationDirectory, in: .localDomainMask).first!
-        let targetURL = applicationsDir.appendingPathComponent(appName)
+        let targetURL = applicationsDir.appendingPathComponent(appFileName)
         
         let scriptContent = """
         #!/bin/bash
         set -e
         
-        LOG_FILE="/private/tmp/iLog_update_detailed.log"
+        APP_NAME="\(self.appName)"
+        LOG_FILE="/private/tmp/\(self.appName)_update_detailed.log"
         exec > >(tee -a "$LOG_FILE") 2>&1
         
         echo "=========================================="
-        echo "iLog UPDATE SCRIPT STARTED: $(date)"
+        echo "$APP_NAME UPDATE SCRIPT STARTED: $(date)"
         echo "=========================================="
         
         # Use the direct path provided by the app
         ZIP_FILE="\(downloadedURL.path)"
-        TARGET_APP="/Applications/iLog.app"
-        EXTRACT_DIR="/private/tmp/iLog_extract_$$"
+        TARGET_APP="/Applications/\(appFileName)"
+        EXTRACT_DIR="/private/tmp/\(self.appName)_extract_$$"
         
         echo "ZIP file path: $ZIP_FILE"
         echo "Target app: $TARGET_APP"
@@ -197,9 +210,9 @@ class UpdateManager: ObservableObject {
             else
                 echo "❌ File not found anywhere"
                 echo "Files in /tmp/:"
-                ls -la /tmp/ | grep -i ilog
+                ls -la /tmp/ | grep -i "$APP_NAME"
                 echo "Files in /private/tmp/:"
-                ls -la /private/tmp/ | grep -i ilog
+                ls -la /private/tmp/ | grep -i "$APP_NAME"
                 exit 1
             fi
         fi
@@ -260,8 +273,8 @@ class UpdateManager: ObservableObject {
         fi
         
         # Remove old version (quit the app first if running)
-        echo "Quitting current iLog instance..."
-        pkill -x "iLog" || true
+        echo "Quitting current $APP_NAME instance..."
+        pkill -x "$APP_NAME" || true
         sleep 1
         
         echo "Removing old version..."
@@ -309,14 +322,14 @@ class UpdateManager: ObservableObject {
         rm -f "$ZIP_FILE"
         
         # Launch new version
-        echo "Launching new iLog..."
+        echo "Launching new $APP_NAME..."
         sleep 2
         open "$TARGET_APP" --args "--updated" || {
             echo "⚠️  Open command failed, but installation completed"
         }
         
         echo "=========================================="
-        echo "iLog UPDATE COMPLETED SUCCESSFULLY: $(date)"
+        echo "$APP_NAME UPDATE COMPLETED SUCCESSFULLY: $(date)"
         echo "=========================================="
         
         # Self-cleanup
@@ -326,7 +339,7 @@ class UpdateManager: ObservableObject {
         """
         
         do {
-            let scriptURL = URL(fileURLWithPath: "/tmp/update_iLog_\(UUID().uuidString).sh")
+            let scriptURL = URL(fileURLWithPath: "/tmp/update_\(self.appName)_\(UUID().uuidString).sh")
             try scriptContent.write(to: scriptURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
             
