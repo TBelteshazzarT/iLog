@@ -5,7 +5,6 @@
 //  Created by Daniel Boyd on 9/3/25.
 //
 
-// UpdateAlertView.swift
 import SwiftUI
 
 struct UpdateAlertView: View {
@@ -20,18 +19,21 @@ struct UpdateAlertView: View {
             Text("Version \(updateManager.latestVersion) is now available.")
                 .multilineTextAlignment(.center)
             
-            if !updateManager.releaseNotes.isEmpty {
-                VStack(alignment: .leading) {
-                    Text("Release Notes:")
-                        .font(.subheadline)
-                        .bold()
-                    ScrollView {
-                        Text(updateManager.releaseNotes)
-                            .font(.caption)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(height: 100)
-                }
+            // Always show release notes section
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Release Notes:")
+                    .font(.subheadline)
+                    .bold()
+                
+                Text(updateManager.releaseNotes)
+                    .font(.caption)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                    )
             }
             
             HStack(spacing: 20) {

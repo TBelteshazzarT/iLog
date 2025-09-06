@@ -27,19 +27,9 @@ struct iLogApp: App {
                         updateManager.checkForUpdates()
                     }
                 }
-                .alert(isPresented: $updateManager.showUpdateAlert) {
-                    Alert(
-                        title: Text("Update Available"),
-                        message: Text("\(updateManager.latestVersion) is now available. Would you like to update now?"),
-                        primaryButton: .default(Text("Update Now")) {
-                            updateManager.downloadAndInstallUpdate { success, error in
-                                if let error = error {
-                                    print("Update failed: \(error.localizedDescription)")
-                                }
-                            }
-                        },
-                        secondaryButton: .cancel(Text("Later"))
-                    )
+                // Replace the alert with a sheet that shows your custom UpdateAlertView
+                .sheet(isPresented: $updateManager.showUpdateAlert) {
+                    UpdateAlertView(updateManager: updateManager)
                 }
         }
     }

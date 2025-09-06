@@ -173,8 +173,7 @@ class UpdateManager: ObservableObject {
         
         let currentAppURL = Bundle.main.bundleURL
         let appFileName = currentAppURL.lastPathComponent
-        let applicationsDir = FileManager.default.urls(for: .applicationDirectory, in: .localDomainMask).first!
-        let targetURL = applicationsDir.appendingPathComponent(appFileName)
+        
         
         let scriptContent = """
         #!/bin/bash
